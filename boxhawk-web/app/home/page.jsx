@@ -183,14 +183,19 @@ export default function LandingPage() {
 
         <p style={styles.sectionDescription}>
         Help us transform medical device data into data for resource recovery.
+        <br></br>
+        Your passion can make a real difference today.
+        <br></br>
+        Have a question or wondering how to get involved? Get in touch with us.
         </p>
 
-
-        <Link href="/contact">
-        <button style={styles.contactButton}>
-            Contact us
-        </button>
-        </Link>
+        <a
+          href="mailto:julie@medicalpantry.org"
+          style={styles.email}
+        >
+          julie@medicalpantry.org
+        </a>
+     
 
     </section>
 
@@ -396,16 +401,14 @@ contactTitle: {
 },
 
 
-contactButton: {
-  marginTop: 30,
-  background: "#151a67",
-  color: "white",
-  border: "none",
-  borderRadius: 40,
-  padding: "18px 70px",
-  fontSize: 24,
-  fontWeight: "bold",
-  cursor: "pointer",
+email: { 
+  display: "inline-block", 
+  fontSize: 18, 
+  color: "#151a67", 
+  fontWeight: 600, 
+  textDecoration: "none", 
+  borderBottom: "1px solid #151a67", 
+  paddingBottom: 3, 
 },
 
 
