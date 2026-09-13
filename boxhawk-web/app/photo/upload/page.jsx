@@ -340,6 +340,7 @@ export default function UploadPage() {
   }
 
   return (
+    
       <div style={{ 
         minHeight: '100vh',
         backgroundColor: '#f8f9fa',
