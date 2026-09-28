@@ -174,7 +174,7 @@ export default function HomePage() {
 
   if (!isAuthenticated) {
     // Redirect to landing page for unauthenticated users
-    window.location.href = '/landing'
+    window.location.href = '/home'
     return null
   }
 
