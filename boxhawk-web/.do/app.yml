@@ -1,0 +1,2 @@
+- name: DigitalOcean App Platform deployment
+  uses: digitalocean/app_action@v2.0.11
