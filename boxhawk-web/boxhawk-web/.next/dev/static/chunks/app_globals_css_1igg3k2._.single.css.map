@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 1, "column": 0}, "map": {"version":3,"sources":["turbopack:///[project]/app/globals.css"],"sourcesContent":[":root {\n  --background: #ffffff;\n  --foreground: #171717;\n}\n\n/* Force light theme for better visibility */\n:root {\n  --background: #ffffff;\n  --foreground: #171717;\n}\n\nhtml,\nbody {\n  width: 100vw;\n  height: 100vh;\n  overflow-x: hidden;\n  overflow-y: auto;\n  margin: 0;\n  padding: 0;\n}\n\nbody {\n  color: var(--foreground);\n  background: var(--background);\n  font-family: Arial, Helvetica, sans-serif;\n  -webkit-font-smoothing: antialiased;\n  -moz-osx-font-smoothing: grayscale;\n}\n\n* {\n  box-sizing: border-box;\n  padding: 0;\n  margin: 0;\n}\n\na {\n  color: inherit;\n  text-decoration: none;\n}\n\n/* Disable dark mode for better visibility */\nhtml {\n  color-scheme: light;\n}\n\n"],"names":[],"mappings":"AAAA;;;;;AAWA;;;;;;;;AAUA;;;;;;;;AAQA;;;;;;AAMA;;;;;AAMA"}}]
+}
