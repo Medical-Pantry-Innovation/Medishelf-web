@@ -554,6 +554,28 @@ export default function HomePage() {
           </div>
         </Link>
 
+        <Link href="/photo/history" style={{ textDecoration: 'none' }}>
+          <div style={{
+            backgroundColor: '#ffffff',
+            border: '1px solid #e5e7eb',
+            borderRadius: '20px',
+            padding: '20px 22px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            boxShadow: '0 10px 26px rgba(15, 23, 42, 0.05)'
+          }}>
+            <div>
+              <h2 style={{ margin: '0 0 6px', color: '#111827', fontSize: '18px' }}>Your uploads</h2>
+              <p style={{ margin: 0, color: '#6b7280', fontSize: '14px' }}>
+                Follow products through expert review
+              </p>
+            </div>
+            <span aria-hidden style={{ color: '#4f46e5', fontSize: '24px' }}>→</span>
+          </div>
+        </Link>
+
         <div style={{
           backgroundColor: '#ffffff',
           borderRadius: '20px',

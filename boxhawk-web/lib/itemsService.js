@@ -25,6 +25,7 @@ const fetchItemImages = async (item) => {
 export async function fetchItemsWithImages({
   includeStatuses,
   excludeStatuses,
+  createdBy,
   limit = defaultLimit,
   offset,
   searchTerm
@@ -42,6 +43,10 @@ export async function fetchItemsWithImages({
     excludeStatuses.forEach((status) => {
       query = query.neq('status', status)
     })
+  }
+
+  if (createdBy) {
+    query = query.eq('created_by', createdBy)
   }
 
   if (searchTerm && searchTerm.trim()) {
