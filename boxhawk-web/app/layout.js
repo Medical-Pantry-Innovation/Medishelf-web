@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabaseClient'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import Logo from '@/components/Logo'
+import ContributorNavigation from '@/components/ContributorNavigation'
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -56,6 +57,7 @@ export default function RootLayout({ children }) {
   const isHomePage = pathname === '/home'
   const isDashboard = pathname === '/' || pathname === '/dashboard'
   const isReviewQueue = pathname === '/items' || pathname.startsWith('/items/')
+  const showContributorNavigation = Boolean(session && userRole === 'photouser')
 
   return (
     <html lang="en">
@@ -193,11 +195,12 @@ export default function RootLayout({ children }) {
             </div>
           </header>
         )}
-        <main style={{
+        <main className={showContributorNavigation ? 'with-contributor-nav' : undefined} style={{
           padding: '32px 24px',
           backgroundColor: '#f9fafb',
           minHeight: 'calc(100vh - 80px)'
         }}>{children}</main>
+        {showContributorNavigation && <ContributorNavigation pathname={pathname} />}
       </body>
     </html>
   )
