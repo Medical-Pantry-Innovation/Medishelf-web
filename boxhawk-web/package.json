@@ -6,7 +6,8 @@
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --test lib/ocr/"
   },
   "dependencies": {
     "@supabase/auth-ui-react": "^0.4.7",

@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import Link from 'next/link'
+
+import UploadExtractionSummary from '@/components/UploadExtractionSummary'
 
 export default function SuccessPage() {
   const [showComments, setShowComments] = useState(false)
@@ -54,6 +56,10 @@ export default function SuccessPage() {
         }}>
           Thanks for being a Pantry Mate and helping us capture every detail. Your photos keep our records accurate and get supplies to the people who need them.
         </p>
+
+        <Suspense fallback={null}>
+          <UploadExtractionSummary />
+        </Suspense>
 
         <div style={{
           display: 'flex',

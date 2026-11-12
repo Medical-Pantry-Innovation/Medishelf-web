@@ -4,13 +4,23 @@ import { useState, useEffect } from 'react'
 import { useRouter, useParams, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabaseClient'
+import {
+  ExtractionField,
+  ExtractionProvenance,
+  REVIEW_FIELDS
+} from '@/components/ExtractionFields'
 
 export default function ItemDetailPage() {
   const [item, setItem] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [selectedImageIndex, setSelectedImageIndex] = useState(0)
-  const [ocrText, setOcrText] = useState('')
+  // What the extraction wrote, snapshotted when the item loads, so the form
+  // can show which values a person has since changed.
+  const [extractionBaseline, setExtractionBaseline] = useState(null)
+  const [extractionMeta, setExtractionMeta] = useState(null)
+  const [rerunning, setRerunning] = useState(false)
+  const [rerunError, setRerunError] = useState(null)
   const [imagesFromDetail, setImagesFromDetail] = useState([]) // array of public URLs
   const [imageRecords, setImageRecords] = useState([]) // [{id, path, url}]
   const [selectedImageIds, setSelectedImageIds] = useState(new Set())
@@ -103,9 +113,16 @@ export default function ItemDetailPage() {
 
       setFormData(initialFormData)
 
-      // Load OCR text for first image from imageRecords
-      if (imagesFromDetail.length > 0) {
-        loadOcrText(imagesFromDetail[0])
+      // Record what the extraction produced, if one has been run for this item.
+      if (data.extracted_at) {
+        setExtractionBaseline(
+          Object.fromEntries(REVIEW_FIELDS.map(f => [f.name, data[f.name] ?? null]))
+        )
+        setExtractionMeta({
+          model: data.extraction_model,
+          prompt_version: data.extraction_prompt_version,
+          extracted_at: data.extracted_at
+        })
       }
 
     } catch (error) {
@@ -116,16 +133,32 @@ export default function ItemDetailPage() {
     }
   }
 
-  const loadOcrText = async (imageUrl) => {
-    // TODO: Implement OCR extraction
-    // For now, show placeholder text
-    setOcrText('OCR text extraction will be implemented here...')
-  }
-
   const handleImageSelect = (index) => {
     setSelectedImageIndex(index)
-    if (imagesFromDetail[index]) {
-      loadOcrText(imagesFromDetail[index])
+  }
+
+  /** Read the packaging again and replace the form values with the result. */
+  const handleRerunExtraction = async () => {
+    setRerunning(true)
+    setRerunError(null)
+
+    try {
+      const response = await fetch('/api/photo-submissions/ai-image-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submission_id: itemId })
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || 'Extraction failed')
+
+      setFormData(prev => ({ ...prev, ...data.columns }))
+      setExtractionBaseline(data.columns)
+      setExtractionMeta(data.extraction_meta)
+    } catch (err) {
+      setRerunError(err.message)
+    } finally {
+      setRerunning(false)
     }
   }
 
@@ -689,353 +722,33 @@ export default function ItemDetailPage() {
             scrollbarColor: '#1a1a1a #f0f0f0',
             paddingRight: '8px'
           }}>
+            <ExtractionProvenance
+              meta={extractionMeta}
+              fields={REVIEW_FIELDS.map(f => f.name)}
+              extraction={extractionBaseline}
+              onRerun={handleRerunExtraction}
+              rerunning={rerunning}
+              rerunError={rerunError}
+            />
+
             <div style={{
               display: 'grid',
               gridTemplateColumns: '1fr',
               gap: '16px',
               marginBottom: '16px'
             }}>
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Product Name <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  name="name"
-                  value={formData.name}
+              {REVIEW_FIELDS.map((field) => (
+                <ExtractionField
+                  key={field.name}
+                  name={field.name}
+                  label={field.label}
+                  required={field.required}
+                  multiline={field.multiline}
+                  value={formData[field.name] ?? ''}
+                  extracted={extractionBaseline ? extractionBaseline[field.name] : undefined}
                   onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                required
                 />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Manufacturer <span style={{ color: '#dc2626' }}>*</span>
-                </label>
-                <input
-                  type="text"
-                  name="manufacturer"
-                  value={formData.manufacturer}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                required
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Barcode Number / GTIN
-                </label>
-                <input
-                  type="text"
-                  name="barcode"
-                  value={formData.barcode}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Size
-                </label>
-                <input
-                  type="text"
-                  name="size"
-                  value={formData.size}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Manufacture Date
-                </label>
-                <input
-                  type="text"
-                  name="date_of_manufacture"
-                  value={formData.date_of_manufacture}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Expiration
-                </label>
-                <input
-                  type="text"
-                  name="expiration"
-                  value={formData.expiration}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Lot
-                </label>
-                <input
-                  type="text"
-                  name="lot"
-                  value={formData.lot}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Ref
-                </label>
-                <input
-                  type="text"
-                  name="ref"
-                  value={formData.ref}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Quantity
-                </label>
-                <input
-                  type="text"
-                  name="quantity"
-                  value={formData.quantity}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Manufacture Address
-                </label>
-                <input
-                  type="text"
-                  name="manufacture_address"
-                  value={formData.manufacture_address}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Manufacture Site
-                </label>
-                <input
-                  type="text"
-                  name="manufacture_site"
-                  value={formData.manufacture_site}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  fontSize: '14px',
-                  fontWeight: '500',
-                  marginBottom: '6px',
-                  color: '#333'
-                }}>
-                  Sponsor
-                </label>
-                <input
-                  type="text"
-                  name="sponsor"
-                  value={formData.sponsor}
-                  onChange={handleInputChange}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    border: '1px solid #ddd',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    outline: 'none'
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Notes */}
-            <div style={{ marginBottom: '16px' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '14px',
-                fontWeight: '500',
-                marginBottom: '6px',
-                color: '#333'
-              }}>
-                Notes
-              </label>
-              <textarea
-                name="notes"
-                value={formData.notes}
-                onChange={handleInputChange}
-                rows={4}
-                style={{
-                  width: '100%',
-                  padding: '10px',
-                  border: '1px solid #ddd',
-                  borderRadius: '4px',
-                  fontSize: '14px',
-                  outline: 'none',
-                  resize: 'vertical'
-                }}
-              />
+              ))}
             </div>
       </div>
 
