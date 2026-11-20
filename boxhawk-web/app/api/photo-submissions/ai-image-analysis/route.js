@@ -2,287 +2,165 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import OpenAI from 'openai'
 
-// create a supabase client for retrieving images by submission id
+import {
+  PROMPT,
+  PROMPT_VERSION,
+  PROMPT_SHA256,
+  RESPONSE_FORMAT,
+  validateExtraction,
+  loadOcrConfig,
+  validateModelSlug,
+  errorCategory,
+  toSubmissionColumns
+} from '@/lib/ocr/index.mjs'
+
+const IMAGE_BUCKET = 'mp-images'
+
+// Supabase client, for reading the submission's images and writing the result back.
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 )
 
-// create an openrouter client for making API call to AI model
-const openrouter = new OpenAI({
-  apiKey: process.env.OPENROUTER_API_KEY,
-  baseURL: 'https://openrouter.ai/api/v1'
-})
-
-const firstPresent = (...values) => {
-  for (const value of values) {
-    if (value !== undefined && value !== null && value !== '') return value
-  }
-  return null
+/**
+ * Build the message content: the versioned prompt, then every image of this
+ * submission as another view of the same item.
+ */
+function buildContent(imageUrls) {
+  return [
+    { type: 'text', text: PROMPT },
+    ...imageUrls.map((url) => ({ type: 'image_url', image_url: { url } }))
+  ]
 }
-
-const getExtractionRecord = (parsed, submissionId) => {
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {}
-  }
-
-  if (Array.isArray(parsed[submissionId])) {
-    return parsed[submissionId][0] || {}
-  }
-
-  const stringId = String(submissionId)
-  if (Array.isArray(parsed[stringId])) {
-    return parsed[stringId][0] || {}
-  }
-
-  if (Array.isArray(parsed.result)) {
-    return parsed.result[0] || {}
-  }
-
-  if (parsed.result && typeof parsed.result === 'object') {
-    return parsed.result
-  }
-
-  return parsed
-}
-
-const normalizeExtraction = (record) => ({
-  name: firstPresent(record.name, record.product_name),
-  manufacturer: firstPresent(record.manufacturer, record.manufacturer_name),
-  barcode: firstPresent(record.barcode, record.barcode_number, record.gtin),
-  size: firstPresent(record.size, record.dimensions),
-  date_of_manufacture: firstPresent(
-    record.date_of_manufacture,
-    record.manufacture_date,
-    record.manufacturing_date,
-    record.date_of_manufacturing
-  ),
-  expiration: firstPresent(
-    record.expiration,
-    record.expiration_date,
-    record.expiry,
-    record.expiry_date,
-    record.use_by_date
-  ),
-  lot: firstPresent(record.lot, record.lot_number, record.batch, record.batch_number),
-  ref: firstPresent(record.ref, record.reference, record.reference_number, record.catalogue_number, record.catalog_number),
-  quantity: firstPresent(record.quantity, record.package_quantity),
-  manufacture_address: firstPresent(
-    record.manufacture_address,
-    record.manufacturer_address,
-    record.manufacturing_address
-  ),
-  manufacture_site: firstPresent(
-    record.manufacture_site,
-    record.manufacturer_site,
-    record.manufacturing_site,
-    record.manufacturing_facility
-  ),
-  sponsor: firstPresent(record.sponsor, record.distributor, record.regulatory_representative),
-  notes: firstPresent(record.notes, record.additional_notes)
-})
-
-// Prompt
-const PROMPT = `
-Act as a Medical Device Label OCR and Structured Data Extraction Specialist specializing in hospital consumables, surgical devices, sterile packaging, and regulatory labeling.
-
-### Task
-Analyze the provided product packaging images and extract visible label information into the structured schema defined in the Output Format.
-
-### Input Data
-1. Submission ID: {{submission_id}}
-2. Product Packaging Images
-
-Images may include multiple sides or panels of the same product packaging. Images may include barcodes, manufacturing data, or product identification information.
-
-### Extraction Rules
-
-1. General OCR Rules
-- Extract only information visibly present in the images.
-- Do not infer, guess, or hallucinate missing values.
-- If a field is not visible, unreadable, or not present, return null.
-- Preserve original wording, spelling, capitalization, and formatting where possible.
-- If multiple images show different sides of the same package, combine the information into one result.
-- If multiple products appear, extract the most prominent product only.
-
-2. Product Identification
-- name: The main product name exactly as printed on the packaging.
-- manufacturer: The company or manufacturer name printed on the packaging.
-
-3. Product Reference and Identification Codes
-- barcode: Extract barcode numbers or GS1 codes exactly as printed.
-- ref: Extract the reference number, catalogue number, or REF code if present.
-- lot: Extract the lot number or batch number.
-
-4. Packaging and Quantity
-- size: Extract size, gauge, dimensions, or measurements exactly as printed.
-- quantity: Extract the quantity per package if shown.
-
-5. Manufacturing and Expiry Information
-- date_of_manufacture: Extract the manufacturing date exactly as printed.
-- expiration: Extract the expiration date exactly as printed.
-
-6. Manufacturer and Distribution Information
-- manufacture_address: Extract the full manufacturer address if visible.
-- manufacture_site: Extract the manufacturing site or facility name.
-- sponsor: Extract sponsor, distributor, or regulatory representative information if present.
-
-7. Additional Notes
-- notes: Include observations that cannot be mapped to other fields.
-
-### OCR Quality Handling
-If text is partially visible or uncertain:
-- Return the best visible extraction.
-- Add clarification in notes if needed.
-
-### Output Format
-
-Return ONLY a valid JSON object.  
-Do not include explanations or text outside the JSON.
-
-output the result into following structure:
-
-{
-  "id": {{submission_id}},
-  "name": "...",
-  "manufacturer": "...",
-  "barcode": "...",
-  "size": "...",
-  "date_of_manufacture": "...",
-  "expiration": "...",
-  "lot": "...",
-  "ref": "...",
-  "quantity": "...",
-  "manufacture_address": "...",
-  "manufacture_site": "...",
-  "sponsor": "...",
-  "notes": "..."
-}
-`
 
 export async function POST(req) {
+  let config
   try {
-    const { submission_id, model = 'google/gemini-3.1-flash-lite-preview' } = await req.json()
+    config = loadOcrConfig()
+  } catch (err) {
+    // A misconfigured deployment is our fault, not the caller's, and it would
+    // otherwise show up as an unexplained empty extraction.
+    console.error('AI extraction configuration error:', err.message)
+    return NextResponse.json(
+      { error: err.message, category: errorCategory(err) },
+      { status: 500 }
+    )
+  }
 
-    if (!submission_id) {
-      return NextResponse.json(
-        { error: 'submission_id is required' },
-        { status: 400 }
-      )
+  try {
+    const body = await req.json()
+    const submissionId = body?.submission_id
+
+    if (!submissionId) {
+      return NextResponse.json({ error: 'submission_id is required' }, { status: 400 })
     }
 
+    // A caller may pin a different model, but it goes through the same slug
+    // rules: no floating aliases, so the stored result stays interpretable.
+    const model = body?.model ? validateModelSlug(body.model) : config.model
+
     // --------------------
-    // 1. Get image paths using submission id
+    // 1. Image paths for this submission
     // --------------------
     const { data: images, error } = await supabase
       .from('photo_submission_images')
       .select('storage_path')
-      .eq('submission_id', submission_id)
+      .eq('submission_id', submissionId)
 
     if (error) throw error
 
-    const paths = images.map(img => img.storage_path)
+    const imageUrls = (images ?? []).map(
+      (img) => supabase.storage.from(IMAGE_BUCKET).getPublicUrl(img.storage_path).data.publicUrl
+    )
+
+    if (imageUrls.length === 0) {
+      return NextResponse.json(
+        { error: `No images found for submission ${submissionId}` },
+        { status: 404 }
+      )
+    }
 
     // --------------------
-    // 2. Build prompt, replace the variable submission_id with received value 
+    // 2. Call the model under the validated configuration
     // --------------------
-    const promptWithId = PROMPT.replaceAll(
-        '{{submission_id}}',
-        String(submission_id)
+    const openrouter = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseUrl })
+
+    const completion = await openrouter.chat.completions.create(
+      {
+        model,
+        temperature: config.temperature,
+        messages: [{ role: 'user', content: buildContent(imageUrls) }],
+        // Enforced by the provider: the response cannot omit a key, add one,
+        // nest the object, or arrive wrapped in Markdown.
+        response_format: RESPONSE_FORMAT,
+        provider: config.provider
+      },
+      { timeout: config.timeoutMs }
+    )
+
+    const raw = completion.choices?.[0]?.message?.content
+
+    let payload
+    try {
+      payload = JSON.parse(raw ?? '')
+    } catch {
+      // With a strict schema this should not happen; when it does, it is a
+      // provider problem and must stay visible rather than becoming an empty row.
+      console.error('AI extraction returned non-JSON content:', raw)
+      return NextResponse.json(
+        { error: 'Model did not return JSON', category: 'invalid_response' },
+        { status: 502 }
+      )
+    }
+
+    const extraction = validateExtraction(payload)
+
+    // --------------------
+    // 3. Store the mapped columns, with the provenance of this run
+    // --------------------
+    const columns = toSubmissionColumns(extraction)
+    const extractedAt = new Date().toISOString()
+
+    const { error: updateError } = await supabase
+      .from('photo_submissions')
+      .update({
+        ...columns,
+        extraction_model: model,
+        extraction_prompt_version: PROMPT_VERSION,
+        extraction_prompt_sha256: PROMPT_SHA256,
+        extracted_at: extractedAt
+      })
+      .eq('id', submissionId)
+
+    if (updateError) throw updateError
+
+    console.log(
+      `AI extraction ok: submission=${submissionId} model=${model} prompt=${PROMPT_VERSION}`
     )
 
     // --------------------
-    // 3. Build the request for AI model (prompt + images)
-    // --------------------
-    const content = [
-      {
-        type: 'text',
-        text: promptWithId
-      }
-    ]
-
-    for (const path of paths) {
-      const { data } = supabase.storage
-        .from('mp-images')
-        .getPublicUrl(path)
-
-      content.push({
-        type: 'image_url',
-        image_url: data.publicUrl
-      })
-    }
-
-    // --------------------
-    // 4. Call OpenRouter
-    // --------------------
-    const completion = await openrouter.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: 'user',
-          content
-        }
-      ]
-    })
-
-    // Log for debugging
-    // console.log('\n=== OPENROUTER API REQUEST ===')
-    // console.log('Submission ID:', submission_id)
-    // console.log('Model:', model)
-    // console.log('content:', content);
-    
-
-    let result = completion.choices?.[0]?.message?.content || '{}'
-
-    // remove unnecessary markdown format if any
-    result = result.replace(/```json|```/g, '').trim()
-    console.log('result:', result);
-
-    // try parse JSON
-    let parsed
-    try {
-      parsed = JSON.parse(result)
-    } catch (e) {
-      parsed = { raw: result }
-    }
-
-    const extraction = normalizeExtraction(getExtractionRecord(parsed, submission_id))
-
-    // update the database using parsed data
-    await supabase
-    .from('photo_submissions')
-    .update({
-      name: extraction.name,
-      manufacturer: extraction.manufacturer,
-      barcode: extraction.barcode,
-      size: extraction.size,
-      date_of_manufacture: extraction.date_of_manufacture,
-      expiration: extraction.expiration,
-      lot: extraction.lot,
-      ref: extraction.ref,
-      quantity: extraction.quantity,
-      manufacture_address: extraction.manufacture_address,
-      manufacture_site: extraction.manufacture_site,
-      sponsor: extraction.sponsor,
-      notes: extraction.notes
-    })
-    .eq('id', submission_id)
-
-    // --------------------
-    // 5. Return result, this is unnecessary in current design, but if we want
-    //.   to display the result right after user clicked upload, we can do so.
+    // 4. Return the extraction, with the provenance of the run that produced it
     // --------------------
     return NextResponse.json({
-      id: submission_id,
-      result: extraction
+      id: submissionId,
+      result: extraction,
+      // The same values mapped onto photo_submissions columns, so the review
+      // screen can fill its form without repeating the mapping in the browser.
+      columns,
+      extraction_meta: {
+        model,
+        prompt_version: PROMPT_VERSION,
+        prompt_sha256: PROMPT_SHA256,
+        image_count: imageUrls.length,
+        extracted_at: extractedAt
+      }
     })
   } catch (err) {
-    console.error('AI extraction error:', err)
+    const category = errorCategory(err)
+    console.error(`AI extraction error [${category}]:`, err)
 
     return NextResponse.json(
-      {
-        error: err.message || 'Internal Server Error'
-      },
+      { error: err.message || 'Internal Server Error', category },
       { status: 500 }
     )
   }

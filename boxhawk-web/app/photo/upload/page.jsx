@@ -132,35 +132,6 @@ export default function UploadPage() {
     setImages(prev => prev.filter(img => img.id !== imageId))
   }
 
-  // Send Image analysis request to backend
-  // the AI model we used is gemini-3.1-flash-lite-preview
-  const runAIExtraction = async (submissionId) => {
-    try {
-      const response = await fetch(
-        '/api/photo-submissions/ai-image-analysis',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            submission_id: submissionId
-          })
-        }
-      )
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'AI extraction failed')
-      }
-
-      console.log('AI Result:', data)
-
-    } catch (error) {
-      console.error(error)
-    }
-  }
   const switchCamera = () => {
     setFacingMode(prev => prev === 'user' ? 'environment' : 'user')
   }
@@ -310,11 +281,10 @@ export default function UploadPage() {
 
       console.log('Successfully registered images in photo_submission_images table')
 
-      // Success - redirect to success page
-      router.push('/success')
-
-      // Images have been uploaded, we can do AI image analysis now
-      runAIExtraction(submission.id)
+      // Success - hand the submission to the success page, which reads the
+      // label and shows the volunteer what came off it. Running the extraction
+      // there rather than here means the result is visible instead of discarded.
+      router.push(`/success?submission=${submission.id}`)
       
     } catch (error) {
       console.error('Upload error:', error)
