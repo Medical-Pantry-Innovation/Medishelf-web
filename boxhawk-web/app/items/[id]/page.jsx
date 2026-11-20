@@ -21,6 +21,9 @@ export default function ItemDetailPage() {
   const [extractionMeta, setExtractionMeta] = useState(null)
   const [rerunning, setRerunning] = useState(false)
   const [rerunError, setRerunError] = useState(null)
+  // Walkthrough only: the values a reader that never returns null would invent.
+  const [guesses, setGuesses] = useState({})
+  const [showGuesses, setShowGuesses] = useState(false)
   const [imagesFromDetail, setImagesFromDetail] = useState([]) // array of public URLs
   const [imageRecords, setImageRecords] = useState([]) // [{id, path, url}]
   const [selectedImageIds, setSelectedImageIds] = useState(new Set())
@@ -37,6 +40,10 @@ export default function ItemDetailPage() {
 
   const itemId = params.id
 
+  // /items/demo renders this same screen from the extraction rules instead of
+  // from Supabase, so the walkthrough cannot drift from what reviewers see.
+  const isDemo = itemId === 'demo'
+
   useEffect(() => {
     if (itemId) {
       fetchItem()
@@ -48,38 +55,54 @@ export default function ItemDetailPage() {
       setLoading(true)
       setError(null)
 
-      // Read basic information directly from photo_submissions
-      const { data, error } = await supabase
-        .from('photo_submissions')
-        .select('*')
-        .eq('id', itemId)
-        .single()
+      let data
+      let recs = []
 
-      if (error) {
-        console.error('Error fetching item:', error)
-        setError('Item not found')
-        return
+      if (isDemo) {
+        const response = await fetch('/api/ocr/demo')
+        if (!response.ok) {
+          setError('Could not load the walkthrough')
+          return
+        }
+        const demo = await response.json()
+        data = demo.submission
+        recs = demo.images
+        setGuesses(demo.guesses || {})
+      } else {
+        // Read basic information directly from photo_submissions
+        const { data: row, error } = await supabase
+          .from('photo_submissions')
+          .select('*')
+          .eq('id', itemId)
+          .single()
+
+        if (error) {
+          console.error('Error fetching item:', error)
+          setError('Item not found')
+          return
+        }
+        data = row
+
+        // Load image details (including id) for this submission, for multi-select and batch operations
+        const { data: imgs, error: imgsErr } = await supabase
+          .from('photo_submission_images')
+          .select('id, storage_path, status, created_at')
+          .eq('submission_id', itemId)
+          .eq('status', 'active')
+          .order('created_at', { ascending: true })
+
+        if (!imgsErr && Array.isArray(imgs)) {
+          recs = imgs.map(it => ({
+            id: it.id,
+            path: it.storage_path,
+            url: supabase.storage.from('mp-images').getPublicUrl(it.storage_path).data.publicUrl
+          }))
+        }
       }
 
       setItem(data)
-
-      // Load image details (including id) for this submission, for multi-select and batch operations
-      const { data: imgs, error: imgsErr } = await supabase
-        .from('photo_submission_images')
-        .select('id, storage_path, status, created_at')
-        .eq('submission_id', itemId)
-        .eq('status', 'active')
-        .order('created_at', { ascending: true })
-
-      if (!imgsErr && Array.isArray(imgs)) {
-        const recs = imgs.map(it => ({
-          id: it.id,
-          path: it.storage_path,
-          url: supabase.storage.from('mp-images').getPublicUrl(it.storage_path).data.publicUrl
-        }))
-        setImageRecords(recs)
-        setImagesFromDetail(recs.map(r => r.url))
-      }
+      setImageRecords(recs)
+      setImagesFromDetail(recs.map(r => r.url))
       
       // Check if there's form data from review page return
       const returnData = searchParams.get('returnData')
@@ -169,6 +192,19 @@ export default function ItemDetailPage() {
       [name]: value
     }))
   }
+
+  // Walkthrough only: overlay the invented values when the toggle is on, so the
+  // form shows what a reader that never returns null would have produced.
+  const guessOverlay = showGuesses
+    ? Object.fromEntries(Object.entries(guesses).map(([key, guess]) => [key, guess.value]))
+    : null
+  const shownFormData = guessOverlay ? { ...formData, ...guessOverlay } : formData
+  const shownBaseline = extractionBaseline && guessOverlay
+    ? { ...extractionBaseline, ...guessOverlay }
+    : extractionBaseline
+  const guessedFields = Object.keys(guesses)
+    .map(name => REVIEW_FIELDS.find(f => f.name === name))
+    .filter(Boolean)
 
   const handleReview = () => {
     // Navigate to review page with form data
@@ -722,6 +758,24 @@ export default function ItemDetailPage() {
             scrollbarColor: '#1a1a1a #f0f0f0',
             paddingRight: '8px'
           }}>
+            {isDemo && (
+              <div style={{
+                border: '1px solid #e9ecef',
+                borderLeft: '3px solid #98a2b3',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                marginBottom: '16px',
+                fontSize: '12.5px',
+                color: '#667085',
+                lineHeight: 1.6
+              }}>
+                <strong style={{ color: '#344054', fontWeight: '600' }}>Walkthrough.</strong>{' '}
+                A real item and real photographs, from the MediScan evaluation set. This is the
+                review screen itself, showing what the extraction rules produce for that item —
+                no model was called and no record was loaded.
+              </div>
+            )}
+
             <ExtractionProvenance
               meta={extractionMeta}
               fields={REVIEW_FIELDS.map(f => f.name)}
@@ -730,6 +784,40 @@ export default function ItemDetailPage() {
               rerunning={rerunning}
               rerunError={rerunError}
             />
+
+            {isDemo && guessedFields.length > 0 && (
+              <div style={{
+                border: '1px solid #e9ecef',
+                borderLeft: '3px solid #dc2626',
+                borderRadius: '8px',
+                padding: '12px 14px',
+                marginBottom: '16px'
+              }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  color: '#101828',
+                  cursor: 'pointer'
+                }}>
+                  <input
+                    id="demo-show-guesses"
+                    type="checkbox"
+                    checked={showGuesses}
+                    onChange={(e) => setShowGuesses(e.target.checked)}
+                    style={{ width: '16px', height: '16px', accentColor: '#dc2626', cursor: 'pointer' }}
+                  />
+                  Fill the blanks the way a guessing reader would
+                </label>
+                <p style={{ fontSize: '13px', color: '#667085', margin: '8px 0 0', lineHeight: 1.6 }}>
+                  {showGuesses
+                    ? `The form now looks complete. ${guessedFields.map(f => f.label).join(' and ')} is nowhere on this label — and a reviewer reading the finished form has no way to tell it apart from what was really there.`
+                    : `${guessedFields.length === 1 ? 'One field' : `${guessedFields.length} fields`} came back empty because this label does not carry ${guessedFields.length === 1 ? 'it' : 'them'}. That is the designed behaviour, not a failure.`}
+                </p>
+              </div>
+            )}
 
             <div style={{
               display: 'grid',
@@ -744,8 +832,8 @@ export default function ItemDetailPage() {
                   label={field.label}
                   required={field.required}
                   multiline={field.multiline}
-                  value={formData[field.name] ?? ''}
-                  extracted={extractionBaseline ? extractionBaseline[field.name] : undefined}
+                  value={shownFormData[field.name] ?? ''}
+                  extracted={shownBaseline ? shownBaseline[field.name] : undefined}
                   onChange={handleInputChange}
                 />
               ))}
