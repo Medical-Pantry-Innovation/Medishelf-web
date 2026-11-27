@@ -4,6 +4,10 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { MdCamera, MdCameraswitch } from 'react-icons/md'
+import PhotoCoverageGuide, { captureLabel, nextCaptureLabel } from '@/components/PhotoCoverageGuide'
+
+const acceptedImageTypes = ['image/jpeg', 'image/png', 'image/webp']
+const maxImageBytes = 10 * 1024 * 1024
 
 export default function UploadPage() {
   const [images, setImages] = useState([])
@@ -72,6 +76,7 @@ export default function UploadPage() {
 
   // Initialize camera stream
   useEffect(() => {
+    let activeStream = null
     const initCamera = async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
         setCameraError('Camera access is not supported in this browser')
@@ -83,6 +88,8 @@ export default function UploadPage() {
           video: { facingMode: facingMode },
           audio: false
         })
+
+        activeStream = mediaStream
 
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream
@@ -103,9 +110,7 @@ export default function UploadPage() {
     initCamera()
 
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop())
-      }
+      activeStream?.getTracks().forEach(track => track.stop())
     }
   }, [facingMode])
 
@@ -129,7 +134,34 @@ export default function UploadPage() {
 
   // Remove image
   const removeImage = (imageId) => {
-    setImages(prev => prev.filter(img => img.id !== imageId))
+    setImages(prev => {
+      const removed = prev.find(img => img.id === imageId)
+      if (removed?.preview?.startsWith('blob:')) URL.revokeObjectURL(removed.preview)
+      return prev.filter(img => img.id !== imageId)
+    })
+  }
+
+  const addFiles = (files) => {
+    const availableSlots = maxImages - images.length
+    const selectedFiles = Array.from(files || []).slice(0, availableSlots)
+
+    if (selectedFiles.length === 0) return
+    if (selectedFiles.some(file => !acceptedImageTypes.includes(file.type))) {
+      setError('Choose JPEG, PNG, or WebP photos.')
+      return
+    }
+    if (selectedFiles.some(file => file.size > maxImageBytes)) {
+      setError('Each photo must be 10 MB or smaller.')
+      return
+    }
+
+    setError(null)
+    const selectedImages = selectedFiles.map(file => ({
+      id: generateUUID(),
+      file,
+      preview: URL.createObjectURL(file)
+    }))
+    setImages(prev => [...prev, ...selectedImages])
   }
 
   // Send Image analysis request to backend
@@ -183,13 +215,8 @@ export default function UploadPage() {
   }
 
   const handleFileInput = (event) => {
-    const files = Array.from(event.target.files || []).slice(0, maxImages - images.length)
-    const selectedImages = files.map(file => ({
-      id: generateUUID(),
-      file,
-      preview: URL.createObjectURL(file)
-    }))
-    setImages(prev => [...prev, ...selectedImages])
+    addFiles(event.target.files)
+    event.target.value = ''
   }
 
   // Handle form input changes
@@ -368,9 +395,11 @@ export default function UploadPage() {
             color: '#666',
             margin: 0
           }}>
-            Take photos of different sides of the item ({images.length}/{maxImages})
+            Take clear photos of one medical product ({images.length}/{maxImages})
           </p>
         </div>
+
+        <PhotoCoverageGuide photoCount={images.length} />
 
         {/* Camera Section */}
         <div style={{
@@ -416,6 +445,19 @@ export default function UploadPage() {
                     objectFit: 'cover'
                   }}
                 />
+                <div style={{
+                  position: 'absolute',
+                  left: '12px',
+                  bottom: '12px',
+                  padding: '7px 11px',
+                  borderRadius: '999px',
+                  backgroundColor: 'rgba(0, 0, 0, 0.68)',
+                  color: '#ffffff',
+                  fontSize: '12px',
+                  fontWeight: '600'
+                }}>
+                  Next: {nextCaptureLabel(images.length)}
+                </div>
                 {isMobileDevice() && (
                   <button
                     onClick={switchCamera}
@@ -460,7 +502,9 @@ export default function UploadPage() {
           {/* Capture Button */}
           <div style={{
             display: 'flex',
-            justifyContent: 'center'
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '14px'
           }}>
             <button
               onClick={capturePhoto}
@@ -498,7 +542,33 @@ export default function UploadPage() {
             >
               <MdCamera size={32} />
             </button>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={images.length >= maxImages}
+              style={{
+                border: '1px solid #d1d5db',
+                borderRadius: '999px',
+                backgroundColor: '#ffffff',
+                color: '#374151',
+                padding: '11px 16px',
+                fontSize: '14px',
+                fontWeight: '600',
+                cursor: images.length >= maxImages ? 'not-allowed' : 'pointer',
+                opacity: images.length >= maxImages ? 0.55 : 1
+              }}
+            >
+              Choose photos
+            </button>
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={acceptedImageTypes.join(',')}
+            multiple
+            hidden
+            onChange={handleFileInput}
+          />
         </div>
 
         {/* Captured Photos Counter */}
@@ -531,6 +601,7 @@ export default function UploadPage() {
                 backgroundColor: '#ffffff',
                 boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
               }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={image.preview}
                   alt={`Capture ${index + 1}`}
@@ -540,6 +611,23 @@ export default function UploadPage() {
                     objectFit: 'cover'
                   }}
                 />
+                <span style={{
+                  position: 'absolute',
+                  left: '8px',
+                  bottom: '8px',
+                  maxWidth: 'calc(100% - 16px)',
+                  padding: '4px 8px',
+                  overflow: 'hidden',
+                  borderRadius: '999px',
+                  backgroundColor: 'rgba(17, 24, 39, 0.78)',
+                  color: '#ffffff',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap'
+                }}>
+                  {captureLabel(index)}
+                </span>
                 <button
                   onClick={() => removeImage(image.id)}
                   style={{

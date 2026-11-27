@@ -93,6 +93,18 @@ export default function SuccessPage() {
           }}>
             Continue Scanning
           </Link>
+
+          <Link href="/photo/history" style={{
+            display: 'block',
+            padding: '12px',
+            color: '#4f46e5',
+            textDecoration: 'none',
+            fontSize: '14px',
+            fontWeight: '700',
+            textAlign: 'center'
+          }}>
+            View upload status
+          </Link>
         </div>
       </div>
 

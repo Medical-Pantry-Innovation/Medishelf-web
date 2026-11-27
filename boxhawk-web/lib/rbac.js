@@ -13,6 +13,7 @@ const PAGE_PERMISSIONS = {
   '/': ['photouser', 'expert', 'admin', 'superadmin'], // Home page - all roles
   '/success': ['photouser', 'expert', 'admin', 'superadmin'], // Success page - all roles
   '/photo/upload': ['photouser', 'admin', 'superadmin'], // Upload page - PhotoUser and Admin
+  '/photo/history': ['photouser', 'admin', 'superadmin'], // Uploader's own submission history
   '/items': ['expert', 'admin', 'superadmin'], // Items list - Expert and above
   '/items/[id]': ['expert', 'admin', 'superadmin'], // Item detail - Expert and above
   '/items/[id]/review': ['expert', 'admin', 'superadmin'], // Review page - Expert and above
